@@ -1,0 +1,19 @@
+# ============================================================
+# Dependencias — Simulador de Ingesta IoT (Fase 1)
+# ============================================================
+# Subconjunto ligero: solo lo necesario para publicar a Pub/Sub.
+
+# Cliente de Google Cloud Pub/Sub
+google-cloud-pubsub==2.29.0
+
+# Validación de esquemas y modelos de datos
+pydantic==2.11.2
+
+# Variables de entorno
+python-dotenv==1.1.0
+
+# Lectura de archivos Parquet (PVOD dataset)
+pyarrow==19.0.1
+
+# Utilidades de fecha/hora
+python-dateutil==2.9.0

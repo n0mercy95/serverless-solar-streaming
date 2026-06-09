@@ -1,0 +1,42 @@
+# ==========================================================
+# Dockerfile — Pipeline de Apache Beam (Fases 2-4)
+# ==========================================================
+FROM python:3.11-slim AS base
+
+LABEL maintainer="Staff Data Engineer"
+LABEL description="Pipeline de streaming Apache Beam para telemetría solar"
+LABEL version="1.0.0"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN groupadd --gid 1000 appuser && \
+    useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
+
+WORKDIR /app
+
+# ---- Etapa de dependencias ----
+FROM base AS dependencies
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ---- Etapa de producción ----
+FROM dependencies AS production
+
+# Copiar toda la arquitectura hexagonal
+COPY domain/ ./domain/
+COPY application/ ./application/
+COPY adapters/ ./adapters/
+COPY config/ ./config/
+COPY main.py .
+
+USER appuser
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import apache_beam; import sys; sys.exit(0)"
+
+# Punto de entrada: el ensamblador principal del pipeline
+ENTRYPOINT ["python", "main.py"]

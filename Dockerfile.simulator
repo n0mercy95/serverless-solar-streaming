@@ -1,0 +1,48 @@
+# ==========================================================
+# Dockerfile — Simulador de Telemetría IoT (Fase 1)
+# ==========================================================
+# Imagen base ligera con Python 3.11
+FROM python:3.11-slim AS base
+
+# Metadatos
+LABEL maintainer="Staff Data Engineer"
+LABEL description="Simulador de ingesta IoT para plantas fotovoltaicas"
+LABEL version="1.0.0"
+
+# Variables de entorno para Python
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Crear usuario no-root para seguridad
+RUN groupadd --gid 1000 appuser && \
+    useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
+
+# Directorio de trabajo
+WORKDIR /app
+
+# ---- Etapa de dependencias ----
+FROM base AS dependencies
+
+# Instalar solo dependencias del simulador (no del pipeline completo)
+COPY requirements-simulator.txt .
+RUN pip install --no-cache-dir -r requirements-simulator.txt
+
+# ---- Etapa de producción ----
+FROM dependencies AS production
+
+# Copiar código fuente respetando la arquitectura hexagonal
+COPY domain/ ./domain/
+COPY config/ ./config/
+COPY simulator/ ./simulator/
+
+# Cambiar a usuario no-root
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)"
+
+# Punto de entrada: el publisher del simulador
+ENTRYPOINT ["python", "-m", "simulator.publisher"]

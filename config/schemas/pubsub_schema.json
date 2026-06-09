@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://solar-streaming/schemas/pubsub_schema.json",
+  "title": "Solar Telemetry IoT Event",
+  "description": "Contrato estricto de entrada para mensajes de telemetría fotovoltaica publicados a Pub/Sub. Cualquier mensaje que no cumpla este esquema será rechazado y enviado a la DLQ.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": [
+    "event_id",
+    "plant_id",
+    "sensor_id",
+    "sensor_type",
+    "timestamp",
+    "lmd_ghi",
+    "power_mw",
+    "module_temp_c",
+    "ambient_temp_c",
+    "dc_voltage",
+    "dc_current"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador único del evento (UUID v4)"
+    },
+    "plant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50,
+      "description": "Identificador de la planta fotovoltaica"
+    },
+    "sensor_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Identificador único del sensor IoT"
+    },
+    "sensor_type": {
+      "type": "string",
+      "enum": ["irradiance", "inverter", "temperature", "weather"],
+      "description": "Tipo de sensor que genera la lectura"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Marca temporal ISO 8601 de la lectura (UTC)"
+    },
+    "lmd_ghi": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1500,
+      "description": "Irradiancia Horizontal Global medida localmente (W/m²)"
+    },
+    "power_mw": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Potencia de salida del inversor (MW)"
+    },
+    "module_temp_c": {
+      "type": "number",
+      "minimum": -40,
+      "maximum": 120,
+      "description": "Temperatura del módulo fotovoltaico (°C)"
+    },
+    "ambient_temp_c": {
+      "type": "number",
+      "minimum": -50,
+      "maximum": 65,
+      "description": "Temperatura ambiente (°C)"
+    },
+    "dc_voltage": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1500,
+      "description": "Voltaje DC del string fotovoltaico (V)"
+    },
+    "dc_current": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Corriente DC del string fotovoltaico (A)"
+    },
+    "wind_speed_ms": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Velocidad del viento (m/s) — Opcional"
+    },
+    "humidity_pct": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Humedad relativa (%) — Opcional"
+    }
+  },
+  "additionalProperties": false
+}

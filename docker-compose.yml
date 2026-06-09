@@ -1,0 +1,106 @@
+# ============================================================
+# Docker Compose — Entorno de Desarrollo Local
+# ============================================================
+# Este archivo levanta el ecosistema completo para desarrollo
+# local sin necesidad de una cuenta GCP activa.
+#
+# Servicios:
+#   1. pubsub-emulator  → Emulador oficial de Google Pub/Sub
+#   2. simulator         → Publisher Python que inyecta telemetría
+#   3. pipeline          → Pipeline Apache Beam (DirectRunner)
+# ============================================================
+
+services:
+  # --------------------------------------------------------
+  # Google Cloud Pub/Sub Emulator
+  # --------------------------------------------------------
+  # Emula el servicio Pub/Sub de GCP localmente.
+  # Permite publicar y suscribirse sin credenciales reales.
+  # Documentación: https://cloud.google.com/pubsub/docs/emulator
+  # --------------------------------------------------------
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    container_name: solar-pubsub-emulator
+    command: >
+      gcloud beta emulators pubsub start
+      --host-port=0.0.0.0:8085
+      --project=${GCP_PROJECT_ID:-solar-streaming-dev}
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - solar-network
+
+  # --------------------------------------------------------
+  # Simulador de Telemetría IoT (Fase 1)
+  # --------------------------------------------------------
+  # Publica mensajes de telemetría fotovoltaica al topic
+  # de Pub/Sub emulado. Usa el patrón Factory para
+  # instanciar el cliente correcto según el entorno.
+  # --------------------------------------------------------
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.simulator
+      target: production
+    container_name: solar-simulator
+    env_file:
+      - .env
+    environment:
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-solar-streaming-dev}
+      - PUBSUB_TOPIC=${PUBSUB_TOPIC:-solar-telemetry-ingest}
+      - SIMULATOR_RATE_LIMIT=${SIMULATOR_RATE_LIMIT:-100}
+      - SIMULATOR_BATCH_SIZE=${SIMULATOR_BATCH_SIZE:-50}
+      - SIMULATOR_DELAY_MS=${SIMULATOR_DELAY_MS:-200}
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - solar-network
+    volumes:
+      - ./data:/app/data:ro
+
+  # --------------------------------------------------------
+  # Pipeline Apache Beam (DirectRunner para desarrollo)
+  # --------------------------------------------------------
+  # Ejecuta el pipeline en modo local (DirectRunner)
+  # consumiendo del emulador de Pub/Sub.
+  # Se activa manualmente, no en el perfil por defecto.
+  # --------------------------------------------------------
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+      target: production
+    container_name: solar-pipeline
+    env_file:
+      - .env
+    environment:
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-solar-streaming-dev}
+      - PUBSUB_TOPIC=${PUBSUB_TOPIC:-solar-telemetry-ingest}
+      - PUBSUB_SUBSCRIPTION=${PUBSUB_SUBSCRIPTION:-solar-telemetry-sub}
+      - BEAM_RUNNER=DirectRunner
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+    profiles:
+      - full
+    restart: on-failure
+    networks:
+      - solar-network
+
+# ============================================================
+# Red interna
+# ============================================================
+networks:
+  solar-network:
+    driver: bridge
+    name: solar-streaming-net

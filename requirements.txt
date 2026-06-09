@@ -1,0 +1,27 @@
+# ============================================================
+# Dependencias — Pipeline Completo (Apache Beam + GCP)
+# ============================================================
+
+# Apache Beam con extensiones GCP (Pub/Sub, BigQuery, Dataflow)
+apache-beam[gcp]==2.62.0
+
+# Validación de esquemas JSON y modelos de datos
+pydantic==2.11.2
+
+# Cliente de Google Cloud Pub/Sub (para el simulador y adaptadores)
+google-cloud-pubsub==2.29.0
+
+# Cliente de Google Cloud BigQuery
+google-cloud-bigquery==3.31.0
+
+# Logging estructurado para GCP
+google-cloud-logging==3.11.4
+
+# Variables de entorno desde archivos .env
+python-dotenv==1.1.0
+
+# ============================================================
+# Testing
+# ============================================================
+pytest==8.4.0
+pytest-cov==6.1.1
