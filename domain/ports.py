@@ -67,11 +67,10 @@ class AnomalyDetectionPort(ABC):
     @abstractmethod
     def detect(
         self,
-        reading: SensorReading,
-        predicted_power: Optional[float] = None,
+        metrics: AggregatedMetrics,
     ) -> tuple[bool, float, str]:
         """
-        Evalúa si una lectura contiene una anomalía.
+        Evalúa si una ventana agregada contiene una anomalía.
 
         Returns:
             tuple[is_anomaly, anomaly_score, anomaly_description]
@@ -88,6 +87,6 @@ class ModelInferencePort(ABC):
     """
 
     @abstractmethod
-    def predict_power(self, reading: SensorReading) -> float:
-        """Predice la potencia esperada dado el contexto del sensor."""
+    def predict_power(self, metrics: AggregatedMetrics) -> float:
+        """Predice la potencia esperada dado el contexto de la ventana."""
         ...

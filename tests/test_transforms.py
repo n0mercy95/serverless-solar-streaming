@@ -108,3 +108,38 @@ def test_aggregate_telemetry_combine_fn():
             assert metrics.avg_module_temp_c == 35.0
 
         assert_that(grouped, check_aggregation, label="CheckMetrics")
+
+def test_anomaly_detection_do_fn():
+    """Verifica que la detección de anomalías asigne el tipo y score correcto."""
+    from application.transforms.inference import AnomalyDetectionDoFn
+    from domain.models import AggregatedMetrics, AnomalyType
+
+    # Creamos una métrica con temperatura muy alta (hotspot)
+    ts = datetime(2023, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    metrics = AggregatedMetrics(
+        plant_id="plant-1",
+        window_start=ts,
+        window_end=ts,
+        avg_ghi=1000.0,
+        avg_power_mw=3.6, # 1000 * 0.005 * (1 - (95-25)*0.004) = 3.6
+        max_power_mw=3.8,
+        min_power_mw=3.4,
+        avg_module_temp_c=95.0, # Umbral es 85.0
+        reading_count=10,
+    )
+
+    with TestPipeline() as p:
+        result = (
+            p
+            | "CreateData" >> beam.Create([metrics])
+            | "DetectAnomalies" >> beam.ParDo(AnomalyDetectionDoFn())
+        )
+
+        def check_anomaly(enriched):
+            assert len(enriched) == 1
+            m = enriched[0]
+            assert m.predicted_power_mw is not None
+            assert m.anomaly_type == AnomalyType.THERMAL
+            assert m.anomaly_score > 0.0
+
+        assert_that(result, check_anomaly, label="CheckAnomaly")
