@@ -118,24 +118,33 @@ def build_pipeline(
     # ============================================================
     # Step 6.5: Detección de Anomalías e Inferencia ML
     # ============================================================
-    enriched_metrics = valid_metrics | "DetectAnomalies" >> beam.ParDo(
+    anomalies_result = valid_metrics | "DetectAnomalies" >> beam.ParDo(
         AnomalyDetectionDoFn()
-    )
+    ).with_outputs(DLQ_TAG, main="valid")
+
+    enriched_metrics = anomalies_result.valid
+    dlq_anomalies = anomalies_result[DLQ_TAG]
 
     # ============================================================
     # Step 7: Escribir resultados
     # ============================================================
     if use_bigquery:
         # Flujo principal → BigQuery telemetry_validated
-        (
-            enriched_metrics
-            | "FormatMetrics" >> beam.ParDo(FormatMetricsDoFn())
-            | "WriteToBQ" >> create_telemetry_sink()
+        formatted_result = enriched_metrics | "FormatMetrics" >> beam.ParDo(
+            FormatMetricsDoFn()
+        ).with_outputs(DLQ_TAG, main="valid")
+
+        formatted_result.valid | "WriteToBQ" >> create_telemetry_sink()
+
+        # Consolidar todas las DLQs
+        all_dlqs = (
+            (dlq_records, dlq_anomalies, formatted_result[DLQ_TAG])
+            | "FlattenDLQs" >> beam.Flatten()
         )
 
         # DLQ → BigQuery dead_letter_queue
         (
-            dlq_records
+            all_dlqs
             | "FormatDLQ" >> beam.ParDo(FormatDLQDoFn())
             | "WriteDLQ" >> create_dlq_sink()
         )
@@ -152,7 +161,13 @@ def build_pipeline(
                 m.anomaly_score,
             )
         )
-        dlq_records | "LogDLQ" >> beam.Map(
+
+        all_dlqs_local = (
+            (dlq_records, dlq_anomalies)
+            | "FlattenLocalDLQs" >> beam.Flatten()
+        )
+
+        all_dlqs_local | "LogDLQ" >> beam.Map(
             lambda r: logger.warning(
                 "DLQ: step=%s | error=%s",
                 r.failed_step,

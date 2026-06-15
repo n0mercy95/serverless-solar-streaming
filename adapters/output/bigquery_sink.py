@@ -76,7 +76,19 @@ class FormatMetricsDoFn(beam.DoFn):
 
     def process(self, metrics: AggregatedMetrics):
         if metrics is not None:
-            yield format_metrics_row(metrics)
+            try:
+                yield format_metrics_row(metrics)
+            except Exception as e:
+                logger.error("Error en FormatMetricsDoFn: %s", str(e))
+                from application.transforms.parsing import DLQ_TAG
+                from domain.models import DLQRecord
+                dlq_record = DLQRecord(
+                    original_payload=str(metrics),
+                    error_message=str(e)[:500],
+                    failure_timestamp=datetime.now(timezone.utc),
+                    failed_step="FormatMetricsDoFn",
+                )
+                yield beam.pvalue.TaggedOutput(DLQ_TAG, dlq_record)
 
 
 def create_telemetry_sink() -> beam.PTransform:

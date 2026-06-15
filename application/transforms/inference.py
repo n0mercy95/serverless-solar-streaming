@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Iterator
 
 import apache_beam as beam
 
-from domain.models import AggregatedMetrics, AnomalyType
+from application.transforms.parsing import DLQ_TAG
+from domain.models import AggregatedMetrics, AnomalyType, DLQRecord
 from domain.ports import AnomalyDetectionPort, ModelInferencePort
 from domain.strategies import (
     InverterFailureStrategy,
@@ -65,40 +67,51 @@ class AnomalyDetectionDoFn(beam.DoFn):
             InverterFailureStrategy(),
         ]
 
-    def process(self, metrics: AggregatedMetrics) -> Iterator[AggregatedMetrics]:
-        # 1. Predecir potencia
-        predicted_power = self.model.predict_power(metrics)
-        
-        # Generar nueva instancia temporal con la predicción (para que la estrategia de inversor la vea)
-        temp_metrics = replace(metrics, predicted_power_mw=predicted_power)
-        
-        highest_score = 0.0
-        final_anomaly = AnomalyType.NONE
-        
-        # 2. Evaluar todas las estrategias (Patrón Strategy)
-        for strategy in self.strategies:
-            is_anomaly, score, desc = strategy.detect(temp_metrics)
+    def process(self, metrics: AggregatedMetrics):
+        try:
+            # 1. Predecir potencia
+            predicted_power = self.model.predict_power(metrics)
             
-            if is_anomaly:
-                logger.warning(
-                    "Anomalía detectada en %s: %s (score=%.2f)",
-                    metrics.plant_id, desc, score
-                )
-                if score > highest_score:
-                    highest_score = score
-                    # Mapear clase de estrategia a AnomalyType
-                    if isinstance(strategy, ThermalAnomalyStrategy):
-                        final_anomaly = AnomalyType.THERMAL
-                    elif isinstance(strategy, IrradianceDropStrategy):
-                        final_anomaly = AnomalyType.IRRADIANCE_DROP
-                    elif isinstance(strategy, InverterFailureStrategy):
-                        final_anomaly = AnomalyType.INVERTER_FAILURE
-        
-        # 3. Emitir las métricas enriquecidas
-        enriched_metrics = replace(
-            temp_metrics,
-            anomaly_type=final_anomaly,
-            anomaly_score=highest_score,
-        )
-        
-        yield enriched_metrics
+            # Generar nueva instancia temporal con la predicción (para que la estrategia de inversor la vea)
+            temp_metrics = replace(metrics, predicted_power_mw=predicted_power)
+            
+            highest_score = 0.0
+            final_anomaly = AnomalyType.NONE
+            
+            # 2. Evaluar todas las estrategias (Patrón Strategy)
+            for strategy in self.strategies:
+                is_anomaly, score, desc = strategy.detect(temp_metrics)
+                
+                if is_anomaly:
+                    logger.warning(
+                        "Anomalía detectada en %s: %s (score=%.2f)",
+                        metrics.plant_id, desc, score
+                    )
+                    if score > highest_score:
+                        highest_score = score
+                        # Mapear clase de estrategia a AnomalyType
+                        if isinstance(strategy, ThermalAnomalyStrategy):
+                            final_anomaly = AnomalyType.THERMAL
+                        elif isinstance(strategy, IrradianceDropStrategy):
+                            final_anomaly = AnomalyType.IRRADIANCE_DROP
+                        elif isinstance(strategy, InverterFailureStrategy):
+                            final_anomaly = AnomalyType.INVERTER_FAILURE
+            
+            # 3. Emitir las métricas enriquecidas
+            enriched_metrics = replace(
+                temp_metrics,
+                anomaly_type=final_anomaly,
+                anomaly_score=highest_score,
+            )
+            
+            yield enriched_metrics
+            
+        except Exception as e:
+            logger.error("Error en AnomalyDetectionDoFn: %s", str(e))
+            dlq_record = DLQRecord(
+                original_payload=str(metrics),
+                error_message=str(e)[:500],
+                failure_timestamp=datetime.now(timezone.utc),
+                failed_step="AnomalyDetectionDoFn",
+            )
+            yield beam.pvalue.TaggedOutput(DLQ_TAG, dlq_record)
