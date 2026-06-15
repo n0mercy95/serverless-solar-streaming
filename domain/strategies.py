@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from domain.models import SensorReading
+from domain.models import AggregatedMetrics
 from domain.ports import AnomalyDetectionPort
 
 
@@ -31,18 +31,17 @@ class ThermalAnomalyStrategy(AnomalyDetectionPort):
 
     def detect(
         self,
-        reading: SensorReading,
-        predicted_power: Optional[float] = None,
+        metrics: AggregatedMetrics,
     ) -> tuple[bool, float, str]:
-        if reading.module_temp_c > self._threshold:
+        if metrics.avg_module_temp_c > self._threshold:
             score = min(
-                (reading.module_temp_c - self._threshold) / self._threshold,
+                (metrics.avg_module_temp_c - self._threshold) / self._threshold,
                 1.0,
             )
             return (
                 True,
                 score,
-                f"Temperatura del módulo ({reading.module_temp_c}°C) "
+                f"Temperatura media del módulo ({metrics.avg_module_temp_c:.1f}°C) "
                 f"excede umbral de {self._threshold}°C",
             )
         return False, 0.0, ""
@@ -67,16 +66,15 @@ class IrradianceDropStrategy(AnomalyDetectionPort):
 
     def detect(
         self,
-        reading: SensorReading,
-        predicted_power: Optional[float] = None,
+        metrics: AggregatedMetrics,
     ) -> tuple[bool, float, str]:
-        if reading.lmd_ghi < self._ghi_min and reading.power_mw > 0:
-            score = 1.0 - (reading.lmd_ghi / max(self._ghi_min, 1.0))
+        if metrics.avg_ghi < self._ghi_min and metrics.avg_power_mw > 0:
+            score = 1.0 - (metrics.avg_ghi / max(self._ghi_min, 1.0))
             return (
                 True,
                 min(score, 1.0),
-                f"GHI ({reading.lmd_ghi} W/m²) anormalmente bajo "
-                f"con potencia activa ({reading.power_mw} MW)",
+                f"GHI medio ({metrics.avg_ghi:.1f} W/m²) anormalmente bajo "
+                f"con potencia activa ({metrics.avg_power_mw:.2f} MW)",
             )
         return False, 0.0, ""
 
@@ -95,13 +93,13 @@ class InverterFailureStrategy(AnomalyDetectionPort):
 
     def detect(
         self,
-        reading: SensorReading,
-        predicted_power: Optional[float] = None,
+        metrics: AggregatedMetrics,
     ) -> tuple[bool, float, str]:
+        predicted_power = metrics.predicted_power_mw
         if predicted_power is None or predicted_power <= 0:
             return False, 0.0, ""
 
-        deviation = abs(reading.power_mw - predicted_power) / predicted_power
+        deviation = abs(metrics.avg_power_mw - predicted_power) / predicted_power
 
         if deviation > self._threshold_pct:
             return (
@@ -109,7 +107,7 @@ class InverterFailureStrategy(AnomalyDetectionPort):
                 min(deviation, 1.0),
                 f"Desviación de potencia ({deviation:.1%}) excede "
                 f"umbral de {self._threshold_pct:.0%}. "
-                f"Real: {reading.power_mw} MW, "
-                f"Predicho: {predicted_power} MW",
+                f"Real: {metrics.avg_power_mw:.2f} MW, "
+                f"Predicho: {predicted_power:.2f} MW",
             )
         return False, 0.0, ""

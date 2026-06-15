@@ -30,6 +30,7 @@ from application.transforms.aggregation import (
 )
 from application.transforms.parsing import DLQ_TAG, ParseSensorReadingDoFn, ExtractTimestampDoFn
 from application.transforms.windowing import ApplyWindowing
+from application.transforms.inference import AnomalyDetectionDoFn
 
 logger = logging.getLogger(__name__)
 
@@ -115,12 +116,19 @@ def build_pipeline(
     )
 
     # ============================================================
+    # Step 6.5: Detección de Anomalías e Inferencia ML
+    # ============================================================
+    enriched_metrics = valid_metrics | "DetectAnomalies" >> beam.ParDo(
+        AnomalyDetectionDoFn()
+    )
+
+    # ============================================================
     # Step 7: Escribir resultados
     # ============================================================
     if use_bigquery:
         # Flujo principal → BigQuery telemetry_validated
         (
-            valid_metrics
+            enriched_metrics
             | "FormatMetrics" >> beam.ParDo(FormatMetricsDoFn())
             | "WriteToBQ" >> create_telemetry_sink()
         )
@@ -133,13 +141,15 @@ def build_pipeline(
         )
     else:
         # Modo local: solo loguear resultados
-        valid_metrics | "LogMetrics" >> beam.Map(
+        enriched_metrics | "LogMetrics" >> beam.Map(
             lambda m: logger.info(
-                "Ventana cerrada: %s | %s | %d lecturas | avg_power=%.4f MW",
+                "Ventana cerrada: %s | %s | %d lecturas | avg_power=%.4f MW | anomalia=%s (%.2f)",
                 m.window_start.isoformat(),
                 m.plant_id,
                 m.reading_count,
                 m.avg_power_mw,
+                m.anomaly_type.value,
+                m.anomaly_score,
             )
         )
         dlq_records | "LogDLQ" >> beam.Map(
